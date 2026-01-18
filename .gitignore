@@ -1,0 +1,25 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+env/
+.venv/
+
+# Data and outputs (never commit)
+data/
+outputs/
+logs/
+models/
+runs/
+
+# Model/export artifacts
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
