@@ -1,0 +1,77 @@
+video:
+  source: 0                  # 0 webcam | "data/videos/x.mp4" | "rtsp://..."
+  width: 1280
+  height: 720
+  loop: true
+
+  # RTSP / low-latency tuning
+  low_latency: true
+  buffersize: 1              # OpenCV CAP_PROP_BUFFERSIZE (when supported)
+  drain_grabs: 2             # each read() will grab() N times to drain buffer (RTSP)
+
+  ffmpeg_capture_options: "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0"
+
+classes:
+  names:
+    "0": "Tasit"
+    "1": "Insan"
+    "2": "UAP"
+    "3": "UAI"
+
+detection:
+  enabled: true
+  model_path: "models/yolo/best.pt"   # senin aktif best modelin
+  conf_thres: 0.30
+  iou_thres: 0.50
+  imgsz: 640
+  device: "cuda"                      # "cpu" da yazabilirsin
+
+odometry:
+  enabled: true
+  max_corners: 600
+  quality_level: 0.01
+  min_distance: 7
+  min_features: 120
+  traj_scale: 0.02
+
+position:
+  rolling_points: 600
+  integration_gain: 0.08
+  use_gps: false
+
+metrics:
+  rolling_points: 300
+
+logging:
+  log_dir: "outputs/dashboard/logs"
+  csv_enable: true
+  csv_path: "outputs/dashboard/logs/metrics.csv"
+
+anomaly:
+  fps_low_threshold: 15.0
+  rmse_high_threshold: 10.0
+
+ui:
+  screenshot_dir: "outputs/dashboard/screenshots"
+
+  # initial window toggles
+  show_detection: true
+  show_metrics: true
+  show_odometry: true
+  show_position: true
+
+  # Control Panel'de gözükecek seçenekler
+  model_presets:
+    - "models/yolo/best.pt"
+    - "models/pretrained/yolov8n.pt"
+    - "models/pretrained/yolov8s.pt"
+    - "./runs/detect/outputs/runs/vehicle_stage1_sanity/weights/best.pt"
+    - "./runs/detect/outputs/runs/vehicle_stage1_sanity/weights/last.pt"
+
+  # Multi-monitor (x,y,w,h) — istersen sonra değiştiririz
+  windows:
+    control:   [50, 50, 520, 420]
+    detection: [0, 0, 960, 540]
+    metrics:   [960, 0, 960, 540]
+    odometry:  [0, 540, 960, 540]
+    position:  [960, 540, 960, 540]
