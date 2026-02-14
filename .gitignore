@@ -24,3 +24,9 @@ runs/
 .vscode/
 .idea/
 submission/
+
+# Backups and temporary files
+*_bak/
+*.log
+*.tmp
+.ipynb_checkpoints/

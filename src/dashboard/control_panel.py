@@ -3,10 +3,11 @@ import os
 from PyQt5 import QtCore, QtWidgets
 
 
-class ControlPanel(QtWidgets.QMainWindow):
+class ControlPanel(QtWidgets.QWidget):
     sig_model_changed = QtCore.pyqtSignal(str)
     sig_source_changed = QtCore.pyqtSignal(str)
     sig_latency_changed = QtCore.pyqtSignal(bool)
+    sig_speed_mode_changed = QtCore.pyqtSignal(str) # "realtime" or "max"
 
     sig_toggle_detection = QtCore.pyqtSignal(bool)
     sig_toggle_metrics = QtCore.pyqtSignal(bool)
@@ -21,11 +22,8 @@ class ControlPanel(QtWidgets.QMainWindow):
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
         self.cfg = cfg
-        self.setWindowTitle("CONTROL - TEKNOFEST Dashboard")
 
-        w = QtWidgets.QWidget()
-        self.setCentralWidget(w)
-        layout = QtWidgets.QVBoxLayout(w)
+        layout = QtWidgets.QVBoxLayout(self)
 
         gb_model = QtWidgets.QGroupBox("Model (YOLO checkpoint)")
         layout.addWidget(gb_model)
@@ -72,7 +70,15 @@ class ControlPanel(QtWidgets.QMainWindow):
         self.chk_low_latency.setChecked(bool(cfg["video"]["low_latency"]))
         l.addWidget(self.chk_low_latency)
 
-        gb_win = QtWidgets.QGroupBox("Windows (toggle)")
+        gb_speed = QtWidgets.QGroupBox("Playback Speed Mode")
+        layout.addWidget(gb_speed)
+        sp_layout = QtWidgets.QHBoxLayout(gb_speed)
+        self.cmb_speed_mode = QtWidgets.QComboBox()
+        self.cmb_speed_mode.addItem("Real-Time (Fixed FPS)", "realtime")
+        self.cmb_speed_mode.addItem("Max Speed (Processing)", "max")
+        sp_layout.addWidget(self.cmb_speed_mode)
+
+        gb_win = QtWidgets.QGroupBox("Panels (toggle)")
         layout.addWidget(gb_win)
         t = QtWidgets.QGridLayout(gb_win)
 
@@ -107,7 +113,9 @@ class ControlPanel(QtWidgets.QMainWindow):
 
         self.lbl_status = QtWidgets.QLabel("Status: Ready")
         layout.addWidget(self.lbl_status)
+        layout.addStretch(1)
 
+        # wires
         self.btn_browse_model.clicked.connect(self.on_browse_model)
         self.btn_reload_model.clicked.connect(self.on_reload_model)
 
@@ -115,6 +123,7 @@ class ControlPanel(QtWidgets.QMainWindow):
         self.btn_apply_source.clicked.connect(self.on_apply_source)
 
         self.chk_low_latency.toggled.connect(self.on_latency_toggled)
+        self.cmb_speed_mode.currentIndexChanged.connect(self.on_speed_mode_changed)
 
         self.chk_det.toggled.connect(self.sig_toggle_detection.emit)
         self.chk_met.toggled.connect(self.sig_toggle_metrics.emit)
@@ -125,12 +134,6 @@ class ControlPanel(QtWidgets.QMainWindow):
         self.btn_step.clicked.connect(self.sig_step.emit)
         self.btn_ss.clicked.connect(self.sig_screenshot.emit)
         self.btn_quit.clicked.connect(self.sig_quit.emit)
-
-        geo = cfg["ui"]["windows"].get("control")
-        if geo:
-            self.setGeometry(*geo)
-        else:
-            self.resize(520, 420)
 
     def set_status(self, msg: str):
         self.lbl_status.setText(f"Status: {msg}")
@@ -170,3 +173,8 @@ class ControlPanel(QtWidgets.QMainWindow):
     def on_latency_toggled(self, enabled: bool):
         self.sig_latency_changed.emit(enabled)
         self.set_status(f"Low-latency: {'ON' if enabled else 'OFF'}")
+
+    def on_speed_mode_changed(self, idx: int):
+        mode = self.cmb_speed_mode.currentData()
+        self.sig_speed_mode_changed.emit(mode)
+        self.set_status(f"Speed mode: {self.cmb_speed_mode.currentText()}")

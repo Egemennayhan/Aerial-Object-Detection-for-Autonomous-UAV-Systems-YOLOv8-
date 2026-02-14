@@ -1,0 +1,10 @@
+# UAVDT Vehicle-only dataset (TEKNOFEST OD – Stage 1)
+
+path: data/processed/uavdt_vehicle_yolo
+
+train: images/train
+val: images/val
+
+nc: 1
+names:
+  - vehicle

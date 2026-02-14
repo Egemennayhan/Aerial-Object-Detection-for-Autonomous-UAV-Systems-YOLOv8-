@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List, Tuple
 
 import cv2
 import numpy as np
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtWidgets, QtGui
 from src.dashboard.qt_bootstrap import force_qt_plugins
 
 from src.dashboard.utils import (
@@ -20,6 +20,7 @@ from src.dashboard.metrics_panel import MetricsPanel
 from src.dashboard.odometry_panel import OdometryPanel
 from src.dashboard.position_panel import PositionPanel
 from src.dashboard.control_panel import ControlPanel
+from src.dashboard.app_window import AppWindow
 
 
 @dataclass
@@ -214,11 +215,11 @@ class PipelineWorker(threading.Thread):
 
         scale = float(self.cfg["odometry"]["traj_scale"])
         last = self.traj[-1]
-        newp = last + vel.astype(np.float32) * scale
+        newp = (last.flatten() + vel.flatten().astype(np.float32) * scale).astype(np.float32)
         self.traj.append(newp)
 
         vis = frame_bgr.copy()
-        for (n, o) in zip(good_new.astype(int), good_old.astype(int)):
+        for (n, o) in zip(good_new.reshape(-1, 2).astype(int), good_old.reshape(-1, 2).astype(int)):
             cv2.line(vis, tuple(o), tuple(n), (0, 255, 255), 2)
             cv2.circle(vis, tuple(n), 2, (0, 0, 255), -1)
 
@@ -230,8 +231,8 @@ class PipelineWorker(threading.Thread):
     def run_position(self, vel_2d: Optional[np.ndarray], dt: float):
         if vel_2d is not None:
             gain = float(self.cfg["position"]["integration_gain"])
-            self.pos_xyz[0] += float(vel_2d[0]) * dt * gain
-            self.pos_xyz[1] += float(vel_2d[1]) * dt * gain
+            self.pos_xyz[0] += float(vel_2d.flatten()[0]) * dt * gain
+            self.pos_xyz[1] += float(vel_2d.flatten()[1]) * dt * gain
 
         ref = None
         rmse = None
@@ -257,8 +258,11 @@ class PipelineWorker(threading.Thread):
 
     def run(self):
         prev_t = time.time()
+        target_fps = self.cfg["video"].get("target_fps", 30)
+        frame_delay = 1.0 / target_fps
 
         while not self.stop_event.is_set():
+            loop_start = time.time()
             self.reload_model_if_needed()
 
             if self.control.get("paused", False) and not self.control.get("step_once", False):
@@ -310,6 +314,12 @@ class PipelineWorker(threading.Thread):
 
             if self.control.get("step_once", False):
                 self.control["step_once"] = False
+            
+            # FPS Control: Sleep if we are too fast
+            elapsed = time.time() - loop_start
+            sleep_time = frame_delay - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
 
 
 class CaptureWorker(threading.Thread):
@@ -330,6 +340,7 @@ class CaptureWorker(threading.Thread):
         self.source = None
         self.source_opened = None
         self.low_latency_opened = None
+        self.fps = 30.0
 
     def open_source_if_needed(self):
         desired_src = self.control.get("video_source")
@@ -348,9 +359,18 @@ class CaptureWorker(threading.Thread):
             self.source.open()
             self.source_opened = desired_src
             self.low_latency_opened = desired_lat
+            
+            # Get actual FPS from video file if possible
+            if self.source.cap is not None:
+                video_fps = self.source.cap.get(cv2.CAP_PROP_FPS)
+                if video_fps > 0:
+                    self.fps = video_fps
+                else:
+                    self.fps = float(self.cfg["video"].get("target_fps", 30))
 
     def run(self):
         while not self.stop_event.is_set():
+            t_start = time.time()
             self.open_source_if_needed()
 
             if self.control.get("paused", False) and not self.control.get("step_once", False):
@@ -370,6 +390,13 @@ class CaptureWorker(threading.Thread):
             self.frame_id += 1
             pkt = FramePacket(frame_id=self.frame_id, t_capture=time.time(), frame_bgr=frame)
             safe_put_latest(self.out_q, pkt)
+            
+            # Sleep to match video FPS if in realtime mode
+            if self.control.get("speed_mode") == "realtime":
+                elapsed = time.time() - t_start
+                sleep_time = (1.0 / self.fps) - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
 
 
 class OutputPoller(QtCore.QObject):
@@ -394,6 +421,7 @@ class DashboardApp(QtWidgets.QApplication):
         super().__init__(argv)
         self.cfg = cfg
         ensure_dirs(cfg)
+        self.set_modern_style()
 
         self.control = {
             "paused": False,
@@ -401,24 +429,24 @@ class DashboardApp(QtWidgets.QApplication):
             "model_path": cfg["detection"]["model_path"],
             "video_source": cfg["video"]["source"],
             "low_latency": bool(cfg["video"]["low_latency"]),
+            "speed_mode": "realtime",
         }
         self.stop_event = threading.Event()
 
-        self.cap_q: "queue.Queue[FramePacket]" = queue.Queue(maxsize=2)
-        self.out_q: "queue.Queue[OutputPacket]" = queue.Queue(maxsize=2)
+        self.cap_q: "queue.Queue[FramePacket]" = queue.Queue(maxsize=1)
+        self.out_q: "queue.Queue[OutputPacket]" = queue.Queue(maxsize=1)
 
         self.bus = UiBus()
         self.bus.updated.connect(self.on_update)
 
-        self.panels: Dict[str, Any] = {}
-        self.create_panels_initial()
-
-        self.ctrl_panel = ControlPanel(cfg)
-        self.ctrl_panel.show()
+        self.window = AppWindow(cfg)
+        self.ctrl_panel = self.window.control
+        self.window.show()
 
         self.ctrl_panel.sig_model_changed.connect(self.on_model_changed)
         self.ctrl_panel.sig_source_changed.connect(self.on_source_changed)
         self.ctrl_panel.sig_latency_changed.connect(self.on_latency_changed)
+        self.ctrl_panel.sig_speed_mode_changed.connect(self.on_speed_mode_changed)
 
         self.ctrl_panel.sig_toggle_detection.connect(lambda v: self.toggle_panel("det", v))
         self.ctrl_panel.sig_toggle_metrics.connect(lambda v: self.toggle_panel("met", v))
@@ -439,6 +467,54 @@ class DashboardApp(QtWidgets.QApplication):
 
         self.installEventFilter(self)
 
+    def set_modern_style(self):
+        self.setStyle("Fusion")
+        palette = QtGui.QPalette()
+        palette.setColor(QtGui.QPalette.Window, QtGui.QColor(30, 30, 35))
+        palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.Base, QtGui.QColor(25, 25, 25))
+        palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(30, 30, 35))
+        palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.Button, QtGui.QColor(45, 45, 50))
+        palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.red)
+        palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
+        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(0, 120, 215))
+        palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.white)
+        self.setPalette(palette)
+
+        self.setStyleSheet("""
+            QMainWindow { background-color: #1e1e23; }
+            QDockWidget { color: #aaa; font-weight: bold; border: 1px solid #333; }
+            QDockWidget::title { background: #25252b; padding: 5px; }
+            QPushButton { 
+                background-color: #3d3d45; 
+                color: white; 
+                border-radius: 4px; 
+                padding: 6px; 
+                border: 1px solid #555;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #0078d7; border: 1px solid #005a9e; }
+            QPushButton:pressed { background-color: #005a9e; }
+            QLabel { color: #ddd; font-family: 'Segoe UI', Arial; }
+            QTabWidget::pane { border: 1px solid #333; top: -1px; background: #1e1e23; }
+            QTabBar::tab {
+                background: #25252b;
+                color: #888;
+                padding: 8px 20px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected { background: #3d3d45; color: white; border-bottom: 2px solid #0078d7; }
+            QTableWidget { background-color: #25252b; gridline-color: #444; color: white; }
+            QHeaderView::section { background-color: #333; color: white; border: 1px solid #444; }
+            QComboBox { background-color: #3d3d45; color: white; border: 1px solid #555; padding: 4px; }
+        """)
+
     def create_panels_initial(self):
         if self.cfg["ui"]["show_detection"]:
             self.panels["det"] = DetectionPanel(self.cfg)
@@ -454,6 +530,10 @@ class DashboardApp(QtWidgets.QApplication):
             self.panels["pos"].show()
 
     def toggle_panel(self, key: str, enabled: bool):
+        self.window.set_panel_visible(key, enabled)
+        return
+
+    def _toggle_panel_old(self, key: str, enabled: bool):
         if enabled and key not in self.panels:
             if key == "det":
                 self.panels[key] = DetectionPanel(self.cfg)
@@ -481,6 +561,10 @@ class DashboardApp(QtWidgets.QApplication):
         self.control["low_latency"] = bool(enabled)
         self.ctrl_panel.set_status(f"Low latency: {'ON' if enabled else 'OFF'}")
 
+    def on_speed_mode_changed(self, mode: str):
+        self.control["speed_mode"] = mode
+        self.ctrl_panel.set_status(f"Speed mode set to: {mode}")
+
     def toggle_pause(self):
         self.control["paused"] = not self.control["paused"]
         self.ctrl_panel.set_status(f"{'Paused' if self.control['paused'] else 'Running'}")
@@ -493,23 +577,21 @@ class DashboardApp(QtWidgets.QApplication):
         out_dir = self.cfg["ui"]["screenshot_dir"]
         ts = now_ts()
 
+        pix = self.window.grab()
+        pix.save(f"{out_dir}/app_{ts}.png")
         pix = self.ctrl_panel.grab()
         pix.save(f"{out_dir}/control_{ts}.png")
-        for name, p in self.panels.items():
-            pix = p.grab()
-            pix.save(f"{out_dir}/{name}_{ts}.png")
 
         self.ctrl_panel.set_status(f"Screenshot saved: {ts}")
 
     def on_update(self, pkt: OutputPacket):
-        if "det" in self.panels:
-            self.panels["det"].update_view(pkt)
-        if "met" in self.panels:
-            self.panels["met"].update_view(pkt)
-        if "odo" in self.panels:
-            self.panels["odo"].update_view(pkt)
-        if "pos" in self.panels:
-            self.panels["pos"].update_view(pkt)
+        try:
+            self.window.detection.update_view(pkt)
+            self.window.metrics.update_view(pkt)
+            self.window.odometry.update_view(pkt)
+            self.window.position.update_view(pkt)
+        except Exception as e:
+            print(f"UI Update Error: {e}")
 
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.KeyPress:
@@ -531,9 +613,7 @@ class DashboardApp(QtWidgets.QApplication):
     def quit_all(self):
         self.stop_event.set()
         time.sleep(0.1)
-        for p in list(self.panels.values()):
-            p.close()
-        self.ctrl_panel.close()
+        self.window.close()
         self.quit()
 
 

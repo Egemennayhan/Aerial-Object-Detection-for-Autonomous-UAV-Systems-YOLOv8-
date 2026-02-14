@@ -1,5 +1,6 @@
 video:
-  source: 0                  # 0 webcam | "data/videos/x.mp4" | "rtsp://..."
+  source: "data/TUYZ_2024_Ornek_Video.MP4"                  # 0 webcam | "data/videos/x.mp4" | "rtsp://..."
+  target_fps: 30             # Video akış hızı (FPS)
   width: 1280
   height: 720
   loop: true
@@ -24,7 +25,7 @@ detection:
   conf_thres: 0.30
   iou_thres: 0.50
   imgsz: 640
-  device: "cuda"                      # "cpu" da yazabilirsin
+  device: "cpu"                      # "cpu" da yazabilirsin
 
 odometry:
   enabled: true

@@ -4,21 +4,18 @@ from PyQt5 import QtWidgets
 import pyqtgraph as pg
 
 try:
-    import pyqtgraph.opengl as gl
-    HAS_GL = True
+    # import pyqtgraph.opengl as gl
+    HAS_GL = False
 except Exception:
     HAS_GL = False
 
 
-class PositionPanel(QtWidgets.QMainWindow):
+class PositionPanel(QtWidgets.QWidget):
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
         self.cfg = cfg
-        self.setWindowTitle("EKRAN 4 - Position Tracking")
 
-        w = QtWidgets.QWidget()
-        self.setCentralWidget(w)
-        layout = QtWidgets.QVBoxLayout(w)
+        layout = QtWidgets.QVBoxLayout(self)
 
         self.plot_xyz = pg.PlotWidget(title="X, Y, Z (estimated) - real-time")
         self.plot_xyz.showGrid(x=True, y=True, alpha=0.3)
@@ -40,13 +37,10 @@ class PositionPanel(QtWidgets.QMainWindow):
 
         row = QtWidgets.QHBoxLayout()
         layout.addLayout(row)
-
         self.lbl_rmse = QtWidgets.QLabel("RMSE: N/A")
         self.lbl_gps = QtWidgets.QLabel("GPS health: NO_GPS")
-        self.lbl_ref = QtWidgets.QLabel("Ref vs Pred: N/A (ref yok)")
         row.addWidget(self.lbl_rmse)
         row.addWidget(self.lbl_gps)
-        row.addWidget(self.lbl_ref)
 
         self.max_points = int(cfg["position"]["rolling_points"])
         self.t = 0
@@ -55,10 +49,6 @@ class PositionPanel(QtWidgets.QMainWindow):
         self.ys: List[float] = []
         self.zs: List[float] = []
         self.traj3: List[np.ndarray] = []
-
-        geo = cfg["ui"]["windows"].get("position")
-        if geo:
-            self.setGeometry(*geo)
 
     def update_view(self, pkt):
         if pkt.pos_xyz is None:
@@ -82,11 +72,6 @@ class PositionPanel(QtWidgets.QMainWindow):
 
         self.lbl_gps.setText(f"GPS health: {pkt.gps_health}")
         self.lbl_rmse.setText(f"RMSE: {pkt.rmse:.3f}" if pkt.rmse is not None else "RMSE: N/A")
-
-        if pkt.ref_xyz is not None:
-            self.lbl_ref.setText(f"Ref vs Pred: ref={pkt.ref_xyz}, pred={pkt.pos_xyz}")
-        else:
-            self.lbl_ref.setText("Ref vs Pred: N/A (ref yok)")
 
         self.traj3.append(pkt.pos_xyz.astype(np.float32))
         if len(self.traj3) > 2000:
