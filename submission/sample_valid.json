@@ -1,0 +1,16 @@
+{
+  "id": "frame_000001",
+  "user": "egemen",
+  "frame": "000001",
+  "detected_objects": [
+    {
+      "cls": 0,
+      "landing_status": -1,
+      "top_left_x": 100,
+      "top_left_y": 120,
+      "bottom_right_x": 300,
+      "bottom_right_y": 400
+    }
+  ],
+  "detected_translations": []
+}

@@ -10,20 +10,23 @@ env/
 data/
 outputs/
 logs/
-models/
+# models/  <-- Commented out to allow specific models
 runs/
 
 # Model/export artifacts
-*.pt
+# *.pt     <-- Commented out to allow specific models
 *.pth
 *.onnx
 *.engine
+
+# Specifically ignore pretrained models but allow your own
+models/pretrained/
 
 # OS / editor
 .DS_Store
 .vscode/
 .idea/
-submission/
+# submission/ <-- Commented out to allow submission files
 
 # Backups and temporary files
 *_bak/
